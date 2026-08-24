@@ -12,8 +12,17 @@ fn main() {
             Ok(input) => {
                 if input == "exit".to_string() {
                     break;
+                } else if input.starts_with("echo") {
+                    println!(
+                        "{}",
+                        input
+                            .strip_prefix("echo")
+                            .expect("failed to strip prefix")
+                            .trim()
+                    );
+                } else {
+                    println!("{}: command not found", input);
                 }
-                println!("{}: command not found", input);
             }
             Err(error) => println!("error: {error}"),
         }
