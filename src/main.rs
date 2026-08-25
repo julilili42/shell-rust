@@ -114,8 +114,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ShellCommand::Unknown(cmd) => {
                     let mut args_list: Vec<&str> = cmd.split(" ").map(|a| a.trim()).collect();
                     let exec_name = args_list.get(0).expect("exec name missing");
-                    if let Some(path) = is_env_executable(&exec_name, OsStr::new("PATH"))? {
-                        let mut child = Command::new(path).args(&mut args_list[1..]).spawn()?;
+                    if let Some(_) = is_env_executable(&exec_name, OsStr::new("PATH"))? {
+                        let mut child =
+                            Command::new(exec_name).args(&mut args_list[1..]).spawn()?;
                         child.wait()?;
                     } else {
                         println!("{}: command not found", cmd)
