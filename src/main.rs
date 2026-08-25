@@ -53,9 +53,48 @@ fn get_path(path: &str) -> Result<String, Box<dyn std::error::Error>> {
         .ok_or_else(|| "failed to strip prefix")?
         .trim();
 
+    let mut abs_path = env::current_dir()?;
+
     match processed {
         p if p.starts_with("/") => Ok(processed.to_string()),
-        _ => Ok("".to_string()),
+        p if p.starts_with("..") => {
+            let mut processed = p;
+            while processed.starts_with("..") {
+                processed = processed
+                    .strip_prefix("..")
+                    .ok_or_else(|| "prefix stripping failed")?;
+
+                if processed.starts_with("/") {
+                    processed = processed
+                        .strip_prefix("/")
+                        .ok_or_else(|| "prefix stripping failed")?;
+                }
+
+                abs_path.pop();
+            }
+
+            abs_path = abs_path.join(processed);
+
+            Ok(abs_path
+                .to_str()
+                .ok_or_else(|| "string conversion failed")?
+                .to_string())
+        }
+        p => {
+            let processed = p;
+            if p.starts_with(".") {
+                processed
+                    .strip_prefix("./")
+                    .ok_or_else(|| "prefix stripping failed")?;
+            }
+
+            abs_path = abs_path.join(processed);
+
+            Ok(abs_path
+                .to_str()
+                .ok_or_else(|| "string conversion failed")?
+                .to_string())
+        }
     }
 }
 
