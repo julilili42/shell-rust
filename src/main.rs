@@ -17,6 +17,7 @@ enum ShellCommand {
     Echo(String),
     Type(String),
     Pwd,
+    Cd(String),
     Unknown(String),
 }
 impl Display for ShellCommand {
@@ -26,6 +27,7 @@ impl Display for ShellCommand {
             ShellCommand::Exit => write!(f, "exit"),
             ShellCommand::Type(_) => write!(f, "type"),
             ShellCommand::Pwd => write!(f, "pwd"),
+            ShellCommand::Cd(_) => write!(f, "cd"),
             ShellCommand::Unknown(cmd) => write!(f, "{cmd}"),
         }
     }
@@ -37,10 +39,23 @@ impl FromStr for ShellCommand {
         match s {
             s if s.starts_with("echo") => Ok(ShellCommand::Echo(print_echo(s))),
             s if s.starts_with("type") => Ok(ShellCommand::Type(determine_type(s)?)),
+            s if s.starts_with("cd") => Ok(ShellCommand::Cd(get_path(s)?)),
             "exit" => Ok(ShellCommand::Exit),
             "pwd" => Ok(ShellCommand::Pwd),
             s => Ok(ShellCommand::Unknown(s.to_string())),
         }
+    }
+}
+
+fn get_path(path: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let processed = path
+        .strip_prefix("cd")
+        .ok_or_else(|| "failed to strip prefix")?
+        .trim();
+
+    match processed {
+        p if p.starts_with("/") => Ok(processed.to_string()),
+        _ => Ok("".to_string()),
     }
 }
 
@@ -50,7 +65,7 @@ fn determine_type(input: &str) -> Result<String, Box<dyn std::error::Error>> {
         .expect("failed to strip prefix")
         .trim();
     match processed {
-        "echo" | "exit" | "type" | "pwd" => Ok(format!("{} is a shell builtin", processed)),
+        "echo" | "exit" | "type" | "pwd" | "cd" => Ok(format!("{} is a shell builtin", processed)),
         cmd_name => search_executable(cmd_name, OsStr::new("PATH")),
     }
 }
@@ -127,6 +142,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ShellCommand::Exit => break,
                 ShellCommand::Pwd => {
                     println!("{}", env::current_dir()?.display())
+                }
+                ShellCommand::Cd(s) => {
+                    let path = PathBuf::from(s);
+                    match path.try_exists() {
+                        Ok(true) => env::set_current_dir(path)?,
+                        _ => println!("cd: {}: No such file or directory", path.display()),
+                    }
                 }
                 ShellCommand::Type(t) => println!("{}", t),
                 ShellCommand::Unknown(cmd) => start_executable(cmd)?,
