@@ -16,6 +16,7 @@ enum ShellCommand {
     Exit,
     Echo(String),
     Type(String),
+    Pwd,
     Unknown(String),
 }
 impl Display for ShellCommand {
@@ -24,6 +25,7 @@ impl Display for ShellCommand {
             ShellCommand::Echo(_) => write!(f, "echo"),
             ShellCommand::Exit => write!(f, "exit"),
             ShellCommand::Type(_) => write!(f, "type"),
+            ShellCommand::Pwd => write!(f, "pwd"),
             ShellCommand::Unknown(cmd) => write!(f, "{cmd}"),
         }
     }
@@ -36,6 +38,7 @@ impl FromStr for ShellCommand {
             s if s.starts_with("echo") => Ok(ShellCommand::Echo(print_echo(s))),
             s if s.starts_with("type") => Ok(ShellCommand::Type(determine_type(s)?)),
             "exit" => Ok(ShellCommand::Exit),
+            "pwd" => Ok(ShellCommand::Pwd),
             s => Ok(ShellCommand::Unknown(s.to_string())),
         }
     }
@@ -91,6 +94,18 @@ fn can_execute(path: &Path) -> bool {
     }
 }
 
+fn start_executable(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
+    let mut args_list: Vec<&str> = cmd.split(" ").map(|a| a.trim()).collect();
+    let exec_name = args_list.get(0).expect("exec name missing");
+    if let Some(_) = is_env_executable(&exec_name, OsStr::new("PATH"))? {
+        let mut child = Command::new(exec_name).args(&mut args_list[1..]).spawn()?;
+        child.wait()?;
+    } else {
+        println!("{}: command not found", cmd)
+    }
+    Ok(())
+}
+
 fn print_echo(input: &str) -> String {
     input
         .strip_prefix("echo")
@@ -110,18 +125,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(cmd) => match cmd {
                 ShellCommand::Echo(echo) => println!("{}", echo),
                 ShellCommand::Exit => break,
-                ShellCommand::Type(t) => println!("{}", t),
-                ShellCommand::Unknown(cmd) => {
-                    let mut args_list: Vec<&str> = cmd.split(" ").map(|a| a.trim()).collect();
-                    let exec_name = args_list.get(0).expect("exec name missing");
-                    if let Some(_) = is_env_executable(&exec_name, OsStr::new("PATH"))? {
-                        let mut child =
-                            Command::new(exec_name).args(&mut args_list[1..]).spawn()?;
-                        child.wait()?;
-                    } else {
-                        println!("{}: command not found", cmd)
-                    }
+                ShellCommand::Pwd => {
+                    println!("{}", env::current_dir()?.display())
                 }
+                ShellCommand::Type(t) => println!("{}", t),
+                ShellCommand::Unknown(cmd) => start_executable(cmd)?,
             },
             Err(e) => {
                 println!("{e}");
