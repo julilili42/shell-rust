@@ -1,6 +1,8 @@
 #[allow(unused_imports)]
 use std::io::{self, Write};
-use std::{fmt::Display, io::BufRead, str::FromStr};
+use std::{
+    env, fmt::Display, fs, io::BufRead, os::unix::fs::PermissionsExt, path::Path, str::FromStr,
+};
 
 enum Command {
     Exit,
@@ -22,21 +24,50 @@ impl FromStr for Command {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             s if s.starts_with("echo") => Ok(Command::Echo(print_echo(s))),
-            s if s.starts_with("type") => Ok(Command::Type(determine_type(s))),
+            s if s.starts_with("type") => Ok(Command::Type(determine_type(s)?)),
             "exit" => Ok(Command::Exit),
             cmd => Err(format!("{}: command not found", cmd).into()),
         }
     }
 }
 
-fn determine_type(input: &str) -> String {
+fn determine_type(input: &str) -> Result<String, Box<dyn std::error::Error>> {
     let processed = input
         .strip_prefix("type")
         .expect("failed to strip prefix")
         .trim();
     match processed {
-        "echo" | "exit" | "type" => format!("{} is a shell builtin", processed),
-        _ => format!("{}: not found", processed),
+        "echo" | "exit" | "type" => Ok(format!("{} is a shell builtin", processed)),
+        cmd_name => search_executable(cmd_name),
+    }
+}
+
+fn search_executable(cmd_name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let Some(env_var) = env::var_os("PATH") else {
+        return Ok(format!("PATH variable not set"));
+    };
+
+    for path in env::split_paths(&env_var) {
+        if !path.is_dir() {
+            continue;
+        }
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            if entry.file_name() == cmd_name && can_execute(&entry.path()) {
+                return Ok(format!("{cmd_name} is {}", entry.path().display()));
+            }
+        }
+    }
+
+    Ok(format!("{}: not found", cmd_name))
+}
+
+fn can_execute(path: &Path) -> bool {
+    if let Ok(metadata) = fs::metadata(path) {
+        let mode = metadata.permissions().mode();
+        metadata.is_file() && (mode & 0o111 != 0)
+    } else {
+        false
     }
 }
 
