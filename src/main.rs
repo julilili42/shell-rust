@@ -50,7 +50,7 @@ fn determine_type(input: &str) -> Result<String, Box<dyn std::error::Error>> {
         .expect("failed to strip prefix")
         .trim();
     match processed {
-        "echo" | "exit" | "type" => Ok(format!("{} is a shell builtin", processed)),
+        "echo" | "exit" | "type" | "pwd" => Ok(format!("{} is a shell builtin", processed)),
         cmd_name => search_executable(cmd_name, OsStr::new("PATH")),
     }
 }
