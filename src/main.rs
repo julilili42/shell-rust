@@ -80,6 +80,14 @@ fn get_path(path: &str) -> Result<String, Box<dyn std::error::Error>> {
                 .ok_or_else(|| "string conversion failed")?
                 .to_string())
         }
+        "~" => {
+            let home_dir =
+                env::home_dir().ok_or_else(|| "HOME env variable not set".to_string())?;
+            let home_str = home_dir
+                .to_str()
+                .ok_or_else(|| "failed to convert pathbuf to string".to_string())?;
+            Ok(home_str.to_string())
+        }
         p => {
             let processed = p;
             if p.starts_with(".") {
