@@ -1,32 +1,42 @@
 #[allow(unused_imports)]
 use std::io::{self, Write};
 use std::{
-    env, fmt::Display, fs, io::BufRead, os::unix::fs::PermissionsExt, path::Path, str::FromStr,
+    env,
+    ffi::OsStr,
+    fmt::Display,
+    fs,
+    io::BufRead,
+    os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
+    process::Command,
+    str::FromStr,
 };
 
-enum Command {
+enum ShellCommand {
     Exit,
     Echo(String),
     Type(String),
+    Unknown(String),
 }
-impl Display for Command {
+impl Display for ShellCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Command::Echo(_) => write!(f, "echo"),
-            Command::Exit => write!(f, "exit"),
-            Command::Type(_) => write!(f, "type"),
+            ShellCommand::Echo(_) => write!(f, "echo"),
+            ShellCommand::Exit => write!(f, "exit"),
+            ShellCommand::Type(_) => write!(f, "type"),
+            ShellCommand::Unknown(cmd) => write!(f, "{cmd}"),
         }
     }
 }
 
-impl FromStr for Command {
+impl FromStr for ShellCommand {
     type Err = Box<dyn std::error::Error>;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            s if s.starts_with("echo") => Ok(Command::Echo(print_echo(s))),
-            s if s.starts_with("type") => Ok(Command::Type(determine_type(s)?)),
-            "exit" => Ok(Command::Exit),
-            cmd => Err(format!("{}: command not found", cmd).into()),
+            s if s.starts_with("echo") => Ok(ShellCommand::Echo(print_echo(s))),
+            s if s.starts_with("type") => Ok(ShellCommand::Type(determine_type(s)?)),
+            "exit" => Ok(ShellCommand::Exit),
+            s => Ok(ShellCommand::Unknown(s.to_string())),
         }
     }
 }
@@ -38,28 +48,38 @@ fn determine_type(input: &str) -> Result<String, Box<dyn std::error::Error>> {
         .trim();
     match processed {
         "echo" | "exit" | "type" => Ok(format!("{} is a shell builtin", processed)),
-        cmd_name => search_executable(cmd_name),
+        cmd_name => search_executable(cmd_name, OsStr::new("PATH")),
     }
 }
+fn is_env_executable(
+    cmd_name: &str,
+    env_var: &OsStr,
+) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
+    let var_os = env::var_os(env_var).ok_or_else(|| format!("env variable not set"))?;
 
-fn search_executable(cmd_name: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let Some(env_var) = env::var_os("PATH") else {
-        return Ok(format!("PATH variable not set"));
-    };
-
-    for path in env::split_paths(&env_var) {
+    for path in env::split_paths(&var_os) {
         if !path.is_dir() {
             continue;
         }
+
         for entry in fs::read_dir(path)? {
             let entry = entry?;
             if entry.file_name() == cmd_name && can_execute(&entry.path()) {
-                return Ok(format!("{cmd_name} is {}", entry.path().display()));
+                return Ok(Some(entry.path()));
             }
         }
     }
-
-    Ok(format!("{}: not found", cmd_name))
+    Ok(None)
+}
+fn search_executable(
+    cmd_name: &str,
+    env_var: &OsStr,
+) -> Result<String, Box<dyn std::error::Error>> {
+    if let Some(path) = is_env_executable(&cmd_name, &env_var)? {
+        return Ok(format!("{cmd_name} is {}", path.display()));
+    } else {
+        return Ok(format!("{}: not found", cmd_name));
+    }
 }
 
 fn can_execute(path: &Path) -> bool {
@@ -84,19 +104,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         print!("$ ");
         io::stdout().flush().unwrap();
         let input = io::stdin().lock().lines().next().expect("new line");
-        let processed = input.map(|s| Command::from_str(&s));
+        let processed = input.map(|s| ShellCommand::from_str(&s))?;
 
         match processed {
-            Ok(Ok(cmd)) => match cmd {
-                Command::Echo(echo) => println!("{}", echo),
-                Command::Exit => break,
-                Command::Type(t) => println!("{}", t),
+            Ok(cmd) => match cmd {
+                ShellCommand::Echo(echo) => println!("{}", echo),
+                ShellCommand::Exit => break,
+                ShellCommand::Type(t) => println!("{}", t),
+                ShellCommand::Unknown(cmd) => {
+                    let mut args_list: Vec<&str> = cmd.split(" ").map(|a| a.trim()).collect();
+                    let exec_name = args_list.get(0).expect("exec name missing");
+                    if let Some(path) = is_env_executable(&exec_name, OsStr::new("PATH"))? {
+                        let mut child = Command::new(path).args(&mut args_list[1..]).spawn()?;
+                        child.wait()?;
+                    } else {
+                        println!("{}: command not found", cmd)
+                    }
+                }
             },
-            Ok(Err(e)) => {
+            Err(e) => {
                 println!("{e}");
                 continue;
             }
-            Err(error) => println!("error: {error}"),
         }
 
         io::stdout().flush().unwrap();
