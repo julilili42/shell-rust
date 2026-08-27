@@ -40,11 +40,9 @@ impl FromStr for ShellCommand {
         let args_list: Vec<&str> = split.iter().map(|s| s.as_str()).collect();
 
         match args_list.as_slice() {
-            ["echo", args @ ..] => Ok(ShellCommand::Echo(
-                shell_words::join(args).trim_matches('\'').to_string(),
-            )),
-            ["type", args @ ..] => Ok(ShellCommand::Type(determine_type(shell_words::join(args))?)),
-            ["cd", args @ ..] => Ok(ShellCommand::Cd(get_path(shell_words::join(args))?)),
+            ["echo", args @ ..] => Ok(ShellCommand::Echo(args.join(" "))),
+            ["type", args @ ..] => Ok(ShellCommand::Type(determine_type(args.join(" "))?)),
+            ["cd", args @ ..] => Ok(ShellCommand::Cd(get_path(args.join(" "))?)),
             ["exit"] => Ok(ShellCommand::Exit),
             ["pwd"] => Ok(ShellCommand::Pwd),
             cmd => Ok(ShellCommand::Unknown(shell_words::join(cmd))),
