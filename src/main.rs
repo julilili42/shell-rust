@@ -36,83 +36,39 @@ impl Display for ShellCommand {
 impl FromStr for ShellCommand {
     type Err = Box<dyn std::error::Error>;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            s if s.starts_with("echo") => Ok(ShellCommand::Echo(print_echo(s))),
-            s if s.starts_with("type") => Ok(ShellCommand::Type(determine_type(s)?)),
-            s if s.starts_with("cd") => Ok(ShellCommand::Cd(get_path(s)?)),
-            "exit" => Ok(ShellCommand::Exit),
-            "pwd" => Ok(ShellCommand::Pwd),
-            s => Ok(ShellCommand::Unknown(s.to_string())),
+        let split = shell_words::split(s)?;
+        let args_list: Vec<&str> = split.iter().map(|s| s.as_str()).collect();
+
+        match args_list.as_slice() {
+            ["echo", args @ ..] => Ok(ShellCommand::Echo(
+                shell_words::join(args).trim_matches('\'').to_string(),
+            )),
+            ["type", args @ ..] => Ok(ShellCommand::Type(determine_type(shell_words::join(args))?)),
+            ["cd", args @ ..] => Ok(ShellCommand::Cd(get_path(shell_words::join(args))?)),
+            ["exit"] => Ok(ShellCommand::Exit),
+            ["pwd"] => Ok(ShellCommand::Pwd),
+            cmd => Ok(ShellCommand::Unknown(shell_words::join(cmd))),
         }
     }
 }
 
-fn get_path(path: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let processed = path
-        .strip_prefix("cd")
-        .ok_or_else(|| "failed to strip prefix")?
-        .trim();
-
-    let mut abs_path = env::current_dir()?;
-
-    match processed {
-        p if p.starts_with("/") => Ok(processed.to_string()),
-        p if p.starts_with("..") => {
-            let mut processed = p;
-            while processed.starts_with("..") {
-                processed = processed
-                    .strip_prefix("..")
-                    .ok_or_else(|| "prefix stripping failed")?;
-
-                if processed.starts_with("/") {
-                    processed = processed
-                        .strip_prefix("/")
-                        .ok_or_else(|| "prefix stripping failed")?;
-                }
-
-                abs_path.pop();
-            }
-
-            abs_path = abs_path.join(processed);
-
-            Ok(abs_path
-                .to_str()
-                .ok_or_else(|| "string conversion failed")?
-                .to_string())
-        }
-        "~" => {
-            let home_dir =
-                env::home_dir().ok_or_else(|| "HOME env variable not set".to_string())?;
-            let home_str = home_dir
-                .to_str()
-                .ok_or_else(|| "failed to convert pathbuf to string".to_string())?;
-            Ok(home_str.to_string())
-        }
-        p => {
-            let processed = p;
-            if p.starts_with(".") {
-                processed
-                    .strip_prefix("./")
-                    .ok_or_else(|| "prefix stripping failed")?;
-            }
-
-            abs_path = abs_path.join(processed);
-
-            Ok(abs_path
-                .to_str()
-                .ok_or_else(|| "string conversion failed")?
-                .to_string())
-        }
+fn get_path(path: String) -> Result<String, Box<dyn std::error::Error>> {
+    if path == "~" {
+        let home = env::var("HOME")?;
+        return Ok(home);
     }
+
+    let clean_path = fs::canonicalize(&path)?;
+
+    Ok(clean_path
+        .to_str()
+        .ok_or("pathbuf to string conversion failed")?
+        .to_string())
 }
 
-fn determine_type(input: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let processed = input
-        .strip_prefix("type")
-        .expect("failed to strip prefix")
-        .trim();
-    match processed {
-        "echo" | "exit" | "type" | "pwd" | "cd" => Ok(format!("{} is a shell builtin", processed)),
+fn determine_type(input: String) -> Result<String, Box<dyn std::error::Error>> {
+    match input.as_str() {
+        "echo" | "exit" | "type" | "pwd" | "cd" => Ok(format!("{} is a shell builtin", input)),
         cmd_name => search_executable(cmd_name, OsStr::new("PATH")),
     }
 }
@@ -157,10 +113,10 @@ fn can_execute(path: &Path) -> bool {
 }
 
 fn start_executable(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
-    let mut args_list: Vec<&str> = cmd.split(" ").map(|a| a.trim()).collect();
-    let exec_name = args_list.get(0).expect("exec name missing");
+    let mut args = shell_words::split(cmd.as_str())?;
+    let exec_name = args.get(0).expect("exec name missing");
     if let Some(_) = is_env_executable(&exec_name, OsStr::new("PATH"))? {
-        let mut child = Command::new(exec_name).args(&mut args_list[1..]).spawn()?;
+        let mut child = Command::new(exec_name).args(&mut args[1..]).spawn()?;
         child.wait()?;
     } else {
         println!("{}: command not found", cmd)
@@ -168,21 +124,12 @@ fn start_executable(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn print_echo(input: &str) -> String {
-    input
-        .strip_prefix("echo")
-        .expect("failed to strip prefix")
-        .trim()
-        .to_string()
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         print!("$ ");
         io::stdout().flush().unwrap();
-        let input = io::stdin().lock().lines().next().expect("new line");
+        let input = io::stdin().lock().lines().next().ok_or("failed to parse")?;
         let processed = input.map(|s| ShellCommand::from_str(&s))?;
-
         match processed {
             Ok(cmd) => match cmd {
                 ShellCommand::Echo(echo) => println!("{}", echo),
