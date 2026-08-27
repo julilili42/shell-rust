@@ -56,7 +56,9 @@ fn get_path(path: String) -> Result<String, Box<dyn std::error::Error>> {
         return Ok(home);
     }
 
-    let clean_path = fs::canonicalize(&path)?;
+    let Ok(clean_path) = fs::canonicalize(&path) else {
+        return Err(format!("cd: {}: No such file or directory", path).into());
+    };
 
     Ok(clean_path
         .to_str()
@@ -137,10 +139,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 ShellCommand::Cd(s) => {
                     let path = PathBuf::from(s);
-                    match path.try_exists() {
-                        Ok(true) => env::set_current_dir(path)?,
-                        _ => println!("cd: {}: No such file or directory", path.display()),
-                    }
+                    env::set_current_dir(path)?
                 }
                 ShellCommand::Type(t) => println!("{}", t),
                 ShellCommand::Unknown(cmd) => start_executable(cmd)?,
