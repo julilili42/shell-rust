@@ -3,7 +3,6 @@ use std::io::{self, Write};
 use std::{
     env,
     ffi::OsStr,
-    fmt::Display,
     fs,
     io::BufRead,
     os::unix::fs::PermissionsExt,
@@ -12,41 +11,64 @@ use std::{
     str::FromStr,
 };
 
+use winnow::Parser;
+
+use crate::parser::{Redirect, parse_command};
+
+mod parser;
+
+#[derive(Debug)]
 enum ShellCommand {
     Exit,
-    Echo(String),
-    Type(String),
-    Pwd,
-    Cd(String),
-    Unknown(String),
+    Echo(String, Option<Redirect>),
+    Type(String, Option<Redirect>),
+    Pwd(Option<Redirect>),
+    Cd(String, Option<Redirect>),
+    Unknown(String, Vec<String>, Option<Redirect>),
 }
-impl Display for ShellCommand {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ShellCommand::Echo(_) => write!(f, "echo"),
-            ShellCommand::Exit => write!(f, "exit"),
-            ShellCommand::Type(_) => write!(f, "type"),
-            ShellCommand::Pwd => write!(f, "pwd"),
-            ShellCommand::Cd(_) => write!(f, "cd"),
-            ShellCommand::Unknown(cmd) => write!(f, "{cmd}"),
-        }
+
+/*
+fn from_str(s: &str) -> Result<Self, Self::Err> {
+    let split = shell_words::split(s)?;
+    let args_list: Vec<&str> = split.iter().map(|s| s.as_str()).collect();
+
+    let test = parsing(s)?;
+    println!("{:?}", test);
+    println!("{:?}", args_list);
+
+    match args_list.as_slice() {
+        ["echo", args @ ..] => Ok(ShellCommand::Echo(args.join(" "), None)),
+        ["type", args @ ..] => Ok(ShellCommand::Type(determine_type(args.join(" "))?, None)),
+        ["cd", args @ ..] => Ok(ShellCommand::Cd(get_path(args.join(" "))?, None)),
+        ["exit"] => Ok(ShellCommand::Exit),
+        ["pwd"] => Ok(ShellCommand::Pwd(None)),
+        cmd => Ok(ShellCommand::Unknown(shell_words::join(cmd), None)),
     }
 }
+*/
 
 impl FromStr for ShellCommand {
     type Err = Box<dyn std::error::Error>;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let split = shell_words::split(s)?;
-        let args_list: Vec<&str> = split.iter().map(|s| s.as_str()).collect();
+    fn from_str(mut s: &str) -> Result<Self, Self::Err> {
+        let cmd = parse_command
+            .parse_next(&mut s)
+            .map_err(|e| format!("parsing error: {}", e))?;
 
-        match args_list.as_slice() {
-            ["echo", args @ ..] => Ok(ShellCommand::Echo(args.join(" "))),
-            ["type", args @ ..] => Ok(ShellCommand::Type(determine_type(args.join(" "))?)),
-            ["cd", args @ ..] => Ok(ShellCommand::Cd(get_path(args.join(" "))?)),
-            ["exit"] => Ok(ShellCommand::Exit),
-            ["pwd"] => Ok(ShellCommand::Pwd),
-            cmd => Ok(ShellCommand::Unknown(shell_words::join(cmd))),
-        }
+        let res = match cmd {
+            ShellCommand::Echo(arg, redirect) => Ok(ShellCommand::Echo(arg, redirect)),
+            ShellCommand::Type(arg, redirect) => {
+                Ok(ShellCommand::Type(determine_type(arg)?, redirect))
+            }
+            ShellCommand::Cd(arg, redirect) => Ok(ShellCommand::Cd(get_path(arg)?, redirect)),
+            ShellCommand::Unknown(cmd, args, redirect) => {
+                Ok(ShellCommand::Unknown(cmd, args, redirect))
+            }
+            ShellCommand::Pwd(redirect) => Ok(ShellCommand::Pwd(redirect)),
+            cmd => Ok(cmd),
+        };
+
+        println!("{:?}", res);
+        res
     }
 }
 
@@ -66,9 +88,9 @@ fn get_path(path: String) -> Result<String, Box<dyn std::error::Error>> {
         .to_string())
 }
 
-fn determine_type(input: String) -> Result<String, Box<dyn std::error::Error>> {
-    match input.as_str() {
-        "echo" | "exit" | "type" | "pwd" | "cd" => Ok(format!("{} is a shell builtin", input)),
+fn determine_type(cmd: String) -> Result<String, Box<dyn std::error::Error>> {
+    match cmd.as_str() {
+        "echo" | "exit" | "type" | "pwd" | "cd" => Ok(format!("{} is a shell builtin", cmd)),
         cmd_name => search_executable(cmd_name, OsStr::new("PATH")),
     }
 }
@@ -112,16 +134,18 @@ fn can_execute(path: &Path) -> bool {
     }
 }
 
-fn start_executable(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
-    let mut args = shell_words::split(cmd.as_str())?;
-    let exec_name = args.get(0).expect("exec name missing");
-    if let Some(_) = is_env_executable(&exec_name, OsStr::new("PATH"))? {
-        let mut child = Command::new(exec_name).args(&mut args[1..]).spawn()?;
-        child.wait()?;
-    } else {
-        println!("{}: command not found", cmd)
+fn start_executable(
+    cmd: String,
+    mut args: Vec<String>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    match is_env_executable(&cmd, OsStr::new("PATH"))? {
+        Some(_) => {
+            let output = Command::new(&cmd).args(&mut args).output()?;
+            let output_str = String::from_utf8_lossy(&output.stdout).into_owned();
+            Ok(output_str)
+        }
+        None => Ok(format!("{}: command not found", &cmd)),
     }
-    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -129,28 +153,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         print!("$ ");
         io::stdout().flush().unwrap();
         let input = io::stdin().lock().lines().next().ok_or("failed to parse")?;
-        let processed = input.map(|s| ShellCommand::from_str(&s))?;
-        match processed {
-            Ok(cmd) => match cmd {
-                ShellCommand::Echo(echo) => println!("{}", echo),
-                ShellCommand::Exit => break,
-                ShellCommand::Pwd => {
-                    println!("{}", env::current_dir()?.display())
-                }
-                ShellCommand::Cd(s) => {
-                    let path = PathBuf::from(s);
-                    env::set_current_dir(path)?
-                }
-                ShellCommand::Type(t) => println!("{}", t),
-                ShellCommand::Unknown(cmd) => start_executable(cmd)?,
-            },
-            Err(e) => {
-                println!("{e}");
-                continue;
+        let processed = input.map(|s| ShellCommand::from_str(&s))??;
+        let (content, redirect) = match processed {
+            ShellCommand::Echo(echo, redirect) => (format!("{}", echo), redirect),
+            ShellCommand::Pwd(redirect) => (format!("{}", env::current_dir()?.display()), redirect),
+            ShellCommand::Cd(s, redirect) => {
+                let path = PathBuf::from(s);
+                env::set_current_dir(path)?;
+                (String::new(), redirect)
             }
-        }
+            ShellCommand::Type(t, redirect) => (format!("{}", t), redirect),
+            ShellCommand::Unknown(cmd, args, redirect) => {
+                let output = start_executable(cmd, args)?;
+                (output, redirect)
+            }
+            ShellCommand::Exit => break,
+        };
 
-        io::stdout().flush().unwrap();
+        if let Some(r) = redirect {
+            fs::write(r.file, content)?;
+        } else {
+            print!("{content}")
+        }
     }
+
+    io::stdout().flush().unwrap();
+
     Ok(())
 }
