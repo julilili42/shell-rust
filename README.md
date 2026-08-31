@@ -1,35 +1,29 @@
-[![progress-banner](https://backend.codecrafters.io/progress/shell/633198e1-593d-4296-8f48-f201e27b1289)](https://app.codecrafters.io/users/julilili42?r=2qF)
+# Rusty Shell
 
-This is a starting point for Rust solutions to the
-["Build Your Own Shell" Challenge](https://app.codecrafters.io/courses/shell/overview).
+A small interactive Unix shell written in Rust as a learning project.
 
-In this challenge, you'll build your own POSIX compliant shell that's capable of
-interpreting shell commands, running external programs and builtin commands like
-cd, pwd, echo and more. Along the way, you'll learn about shell command parsing,
-REPLs, builtin commands, and more.
+## Features
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+- Built-ins: `cd`, `echo`, `exit`, `pwd`, and `type`
+- Runs executables from `PATH` or an explicit path
+- Single- and double-quoted arguments
+- Standard output and error redirection with `>`, `>>`, `1>`, `1>>`, `2>`, and `2>>`
 
-# Passing the first stage
+## Run
 
-The entry point for your `shell` implementation is in `src/main.rs`. Study and
-uncomment the relevant code, then run the command below to execute the tests on
-our servers:
+Rust 1.96 or newer is required.
 
 ```sh
-codecrafters submit
+cargo run
 ```
 
-Time to move on to the next stage!
+```text
+$ echo "hello world"
+hello world
+$ type echo
+echo is a shell builtin
+$ pwd
+/your/current/directory
+```
 
-# Stage 2 & beyond
-
-Note: This section is for stages 2 and beyond.
-
-1. Ensure you have `cargo (1.96)` installed locally
-1. Run `./your_program.sh` to run your program, which is implemented in
-   `src/main.rs`. This command compiles your Rust project, so it might be slow
-   the first time you run it. Subsequent runs will be fast.
-1. Run `codecrafters submit` to submit your solution to CodeCrafters. Test
-   output will be streamed to your terminal.
+This is not a fully POSIX-compliant shell. Pipes, environment expansion, and job control are not implemented.
