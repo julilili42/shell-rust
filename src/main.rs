@@ -150,7 +150,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(r) = redirect {
             fs::write(r.file, content)?;
         } else {
-            print!("{content}")
+            println!("{content}");
+            io::stdout().flush().unwrap();
         }
     }
 
