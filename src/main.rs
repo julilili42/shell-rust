@@ -138,7 +138,8 @@ fn output_result(
     redirect: Option<Redirect>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(r) = redirect {
-        write_to_redirect(&r, content)?;
+        let formatted_content = format!("{}\n", content);
+        write_to_redirect(&r, &formatted_content)?;
     } else {
         println!("{}", content);
         io::stdout().flush()?;
