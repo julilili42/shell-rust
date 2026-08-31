@@ -27,26 +27,6 @@ enum ShellCommand {
     Unknown(String, Vec<String>, Option<Redirect>),
 }
 
-/*
-fn from_str(s: &str) -> Result<Self, Self::Err> {
-    let split = shell_words::split(s)?;
-    let args_list: Vec<&str> = split.iter().map(|s| s.as_str()).collect();
-
-    let test = parsing(s)?;
-    println!("{:?}", test);
-    println!("{:?}", args_list);
-
-    match args_list.as_slice() {
-        ["echo", args @ ..] => Ok(ShellCommand::Echo(args.join(" "), None)),
-        ["type", args @ ..] => Ok(ShellCommand::Type(determine_type(args.join(" "))?, None)),
-        ["cd", args @ ..] => Ok(ShellCommand::Cd(get_path(args.join(" "))?, None)),
-        ["exit"] => Ok(ShellCommand::Exit),
-        ["pwd"] => Ok(ShellCommand::Pwd(None)),
-        cmd => Ok(ShellCommand::Unknown(shell_words::join(cmd), None)),
-    }
-}
-*/
-
 impl FromStr for ShellCommand {
     type Err = Box<dyn std::error::Error>;
     fn from_str(mut s: &str) -> Result<Self, Self::Err> {
@@ -54,7 +34,7 @@ impl FromStr for ShellCommand {
             .parse_next(&mut s)
             .map_err(|e| format!("parsing error: {}", e))?;
 
-        let res = match cmd {
+        match cmd {
             ShellCommand::Echo(arg, redirect) => Ok(ShellCommand::Echo(arg, redirect)),
             ShellCommand::Type(arg, redirect) => {
                 Ok(ShellCommand::Type(determine_type(arg)?, redirect))
@@ -65,10 +45,7 @@ impl FromStr for ShellCommand {
             }
             ShellCommand::Pwd(redirect) => Ok(ShellCommand::Pwd(redirect)),
             cmd => Ok(cmd),
-        };
-
-        println!("{:?}", res);
-        res
+        }
     }
 }
 
