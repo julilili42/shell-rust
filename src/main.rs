@@ -13,7 +13,7 @@ use std::{
 
 use winnow::Parser;
 
-use crate::parser::{Redirect, parse_command};
+use crate::parser::{Redirect, RedirectOperation, parse_command};
 
 mod parser;
 
@@ -114,15 +114,51 @@ fn can_execute(path: &Path) -> bool {
 fn start_executable(
     cmd: String,
     mut args: Vec<String>,
-) -> Result<String, Box<dyn std::error::Error>> {
+    redirect: Option<Redirect>,
+) -> Result<(), Box<dyn std::error::Error>> {
     match is_env_executable(&cmd, OsStr::new("PATH"))? {
         Some(_) => {
             let output = Command::new(&cmd).args(&mut args).output()?;
-            let output_str = String::from_utf8_lossy(&output.stdout).into_owned();
-            Ok(output_str)
+            let output_str = String::from_utf8_lossy(&output.stdout);
+
+            if let Some(ref r) = redirect {
+                write_to_redirect(&r, &output_str)?;
+            } else {
+                print!("{}", output_str);
+                io::stdout().flush()?;
+            }
         }
-        None => Ok(format!("{}: command not found", &cmd)),
+        None => println!("{}: command not found", &cmd),
     }
+    Ok(())
+}
+
+fn output_result(
+    content: &str,
+    redirect: Option<Redirect>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(r) = redirect {
+        write_to_redirect(&r, content)?;
+    } else {
+        println!("{}", content);
+        io::stdout().flush()?;
+    }
+    Ok(())
+}
+
+fn write_to_redirect(r: &Redirect, content: &str) -> Result<(), Box<dyn std::error::Error>> {
+    match r.op {
+        RedirectOperation::Write => fs::write(&r.file, content)?,
+        RedirectOperation::Append => {
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&r.file)?;
+            file.write_all(content.as_bytes())?;
+            file.write_all(b"\n")?;
+        }
+    }
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -131,28 +167,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         io::stdout().flush().unwrap();
         let input = io::stdin().lock().lines().next().ok_or("failed to parse")?;
         let processed = input.map(|s| ShellCommand::from_str(&s))??;
-        let (content, redirect) = match processed {
-            ShellCommand::Echo(echo, redirect) => (format!("{}", echo), redirect),
-            ShellCommand::Pwd(redirect) => (format!("{}", env::current_dir()?.display()), redirect),
+        match processed {
+            ShellCommand::Echo(echo, redirect) => output_result(&format!("{}", echo), redirect)?,
+            ShellCommand::Pwd(redirect) => {
+                output_result(&format!("{}", env::current_dir()?.display()), redirect)?
+            }
             ShellCommand::Cd(s, redirect) => {
                 let path = PathBuf::from(s);
                 env::set_current_dir(path)?;
-                (String::new(), redirect)
+                if let Some(r) = redirect {
+                    write_to_redirect(&r, "")?;
+                }
             }
-            ShellCommand::Type(t, redirect) => (format!("{}", t), redirect),
+            ShellCommand::Type(t, redirect) => output_result(&format!("{}", t), redirect)?,
             ShellCommand::Unknown(cmd, args, redirect) => {
-                let output = start_executable(cmd, args)?;
-                (output, redirect)
+                start_executable(cmd, args, redirect)?;
             }
             ShellCommand::Exit => break,
         };
-
-        if let Some(r) = redirect {
-            fs::write(r.file, content)?;
-        } else {
-            println!("{content}");
-            io::stdout().flush().unwrap();
-        }
     }
 
     io::stdout().flush().unwrap();

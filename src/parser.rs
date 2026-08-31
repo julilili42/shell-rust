@@ -9,7 +9,7 @@ use winnow::{
 use crate::ShellCommand;
 
 #[derive(Debug)]
-enum RedirectOperation {
+pub enum RedirectOperation {
     Write,
     Append,
 }
