@@ -11,7 +11,7 @@ use std::{
     str::FromStr,
 };
 
-use winnow::Parser;
+use winnow::{Parser, ascii::float};
 
 use crate::parser::{Redirect, RedirectOperation, parse_command};
 
@@ -39,7 +39,7 @@ impl FromStr for ShellCommand {
             ShellCommand::Type(arg, redirect) => {
                 Ok(ShellCommand::Type(determine_type(arg)?, redirect))
             }
-            ShellCommand::Cd(arg, redirect) => Ok(ShellCommand::Cd(get_path(arg)?, redirect)),
+            ShellCommand::Cd(arg, redirect) => Ok(ShellCommand::Cd(arg, redirect)),
             ShellCommand::Unknown(cmd, args, redirect) => {
                 Ok(ShellCommand::Unknown(cmd, args, redirect))
             }
@@ -47,22 +47,6 @@ impl FromStr for ShellCommand {
             cmd => Ok(cmd),
         }
     }
-}
-
-fn get_path(path: String) -> Result<String, Box<dyn std::error::Error>> {
-    if path == "~" {
-        let home = env::var("HOME")?;
-        return Ok(home);
-    }
-
-    let Ok(clean_path) = fs::canonicalize(&path) else {
-        return Err(format!("cd: {}: No such file or directory", path).into());
-    };
-
-    Ok(clean_path
-        .to_str()
-        .ok_or("pathbuf to string conversion failed")?
-        .to_string())
 }
 
 fn determine_type(cmd: String) -> Result<String, Box<dyn std::error::Error>> {
@@ -177,7 +161,7 @@ fn write_to_redirect(r: &Redirect, content: &str) -> Result<(), Box<dyn std::err
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         print!("$ ");
-        io::stdout().flush().unwrap();
+        io::stdout().flush()?;
         let input = io::stdin().lock().lines().next().ok_or("failed to parse")?;
         let processed = input.map(|s| ShellCommand::from_str(&s))??;
         match processed {
@@ -186,9 +170,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 output_result(&format!("{}", env::current_dir()?.display()), redirect)?
             }
             ShellCommand::Cd(s, redirect) => {
-                let path = PathBuf::from(s);
-                env::set_current_dir(path)?;
-                if let Some(r) = redirect {
+                let target_path = if s == "~" {
+                    env::var("HOME").unwrap_or_default()
+                } else {
+                    s
+                };
+
+                let path = PathBuf::from(&target_path);
+                if env::set_current_dir(path).is_err() {
+                    println!("cd: {}: No such file or directory", target_path);
+                    io::stdout().flush()?;
+                } else if let Some(r) = redirect {
                     write_to_redirect(&r, "")?;
                 }
             }
