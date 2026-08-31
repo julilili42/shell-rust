@@ -13,7 +13,7 @@ use std::{
 
 use winnow::Parser;
 
-use crate::parser::{Redirect, RedirectOperation, parse_command};
+use crate::parser::{Redirect, RedirectOperation, RedirectStream, parse_command};
 
 mod parser;
 
@@ -116,16 +116,27 @@ fn start_executable(
             let output_str = String::from_utf8_lossy(&output.stdout);
             let error_str = String::from_utf8_lossy(&output.stderr);
 
-            if !error_str.is_empty() {
-                eprint!("{}", error_str);
-                io::stderr().flush()?;
-            }
-
-            if let Some(ref r) = redirect {
-                write_to_redirect(&r, &output_str)?;
-            } else {
-                print!("{}", output_str);
-                io::stdout().flush()?;
+            match redirect {
+                Some(ref r) if r.stream == RedirectStream::Stderr => {
+                    write_to_redirect(r, &error_str)?;
+                    print!("{}", output_str);
+                    io::stdout().flush()?;
+                }
+                Some(ref r) if r.stream == RedirectStream::Stdout => {
+                    write_to_redirect(r, &output_str)?;
+                    if !error_str.is_empty() {
+                        eprint!("{}", error_str);
+                        io::stderr().flush()?;
+                    }
+                }
+                _ => {
+                    print!("{}", output_str);
+                    io::stdout().flush()?;
+                    if !error_str.is_empty() {
+                        eprint!("{}", error_str);
+                        io::stderr().flush()?;
+                    }
+                }
             }
         }
         None => println!("{}: command not found", &cmd),
@@ -137,26 +148,40 @@ fn output_result(
     content: &str,
     redirect: Option<Redirect>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(r) = redirect {
-        let formatted_content = format!("{}\n", content);
-        write_to_redirect(&r, &formatted_content)?;
-    } else {
-        println!("{}", content);
-        io::stdout().flush()?;
+    match redirect {
+        Some(ref r) if r.stream == RedirectStream::Stderr => {
+            write_to_redirect(r, "")?;
+            println!("{}", content);
+            io::stdout().flush()?;
+        }
+        Some(ref r) if r.stream == RedirectStream::Stdout => {
+            let formatted_content = format!("{}\n", content);
+            write_to_redirect(r, &formatted_content)?;
+        }
+        _ => {
+            println!("{}", content);
+            io::stdout().flush()?;
+        }
     }
     Ok(())
 }
 
 fn write_to_redirect(r: &Redirect, content: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let path = Path::new(&r.file);
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            let _ = fs::create_dir_all(parent);
+        }
+    }
+
     match r.op {
-        RedirectOperation::Write => fs::write(&r.file, content)?,
+        RedirectOperation::Write => fs::write(&path, content)?,
         RedirectOperation::Append => {
             let mut file = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(&r.file)?;
+                .open(&path)?;
             file.write_all(content.as_bytes())?;
-            file.write_all(b"\n")?;
         }
     }
     Ok(())

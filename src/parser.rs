@@ -8,6 +8,11 @@ use winnow::{
 
 use crate::ShellCommand;
 
+#[derive(Debug, PartialEq)]
+pub enum RedirectStream {
+    Stdout,
+    Stderr,
+}
 #[derive(Debug)]
 pub enum RedirectOperation {
     Write,
@@ -15,6 +20,7 @@ pub enum RedirectOperation {
 }
 #[derive(Debug)]
 pub struct Redirect {
+    pub stream: RedirectStream,
     pub op: RedirectOperation,
     pub file: String,
 }
@@ -82,19 +88,22 @@ pub fn parse_command(input: &mut &str) -> ModalResult<ShellCommand> {
 
 fn parse_redirect(input: &mut &str) -> ModalResult<Option<Redirect>> {
     let _ = opt(space0).parse_next(input)?;
-    let op_opt = opt(alt(("1>>", ">>", "1>", ">"))).parse_next(input)?;
+    let op_opt = opt(alt(("2>>", "1>>", ">>", "2>", "1>", ">"))).parse_next(input)?;
 
     if let Some(op) = op_opt {
         let _ = opt(space0).parse_next(input)?;
         let file = parse_word.parse_next(input)?;
 
-        let op_res = match op {
-            ">" | "1>" => RedirectOperation::Write,
-            ">>" | "1>>" => RedirectOperation::Append,
+        let (stream, op_res) = match op {
+            ">" | "1>" => (RedirectStream::Stdout, RedirectOperation::Write),
+            ">>" | "1>>" => (RedirectStream::Stdout, RedirectOperation::Append),
+            "2>" => (RedirectStream::Stderr, RedirectOperation::Write),
+            "2>>" => (RedirectStream::Stderr, RedirectOperation::Append),
             _ => unreachable!(),
         };
 
         return Ok(Some(Redirect {
+            stream,
             op: op_res,
             file: file.to_string(),
         }));
@@ -111,8 +120,10 @@ fn parse_argument(input: &mut &str) -> ModalResult<(String, Option<Redirect>)> {
     }
 
     let arg_str = alt((
+        take_until(0.., "2>>"),
         take_until(0.., "1>>"),
         take_until(0.., ">>"),
+        take_until(0.., "2>"),
         take_until(0.., "1>"),
         take_until(0.., ">"),
         rest,
