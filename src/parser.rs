@@ -55,14 +55,14 @@ pub fn parse_command(input: &mut &str) -> ModalResult<ShellCommand> {
 
 fn parse_redirect(input: &mut &str) -> ModalResult<Option<Redirect>> {
     let _ = opt(space0).parse_next(input)?;
-    let op_opt = opt(alt((">>", ">"))).parse_next(input)?;
+    let op_opt = opt(alt((">>", ">", "1>"))).parse_next(input)?;
 
     if let Some(op) = op_opt {
         let _ = opt(space0).parse_next(input)?;
         let file = take_till(0.., char::is_whitespace).parse_next(input)?;
 
         let op_res = match op {
-            ">" => RedirectOperation::Write,
+            ">" | "1>" => RedirectOperation::Write,
             ">>" => RedirectOperation::Append,
             _ => unreachable!(),
         };
@@ -83,7 +83,7 @@ fn parse_argument(input: &mut &str) -> ModalResult<(String, Option<Redirect>)> {
         return Ok((String::new(), None));
     }
 
-    let arg_str = alt((take_until(0.., ">"), rest)).parse_next(input)?;
+    let arg_str = alt((take_until(0.., "1>"), take_until(0.., ">"), rest)).parse_next(input)?;
 
     let arg = arg_str.trim_end().to_string();
     let redirect = parse_redirect.parse_next(input)?;
