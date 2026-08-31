@@ -20,16 +20,21 @@ pub struct Redirect {
 }
 
 fn parse_word(input: &mut &str) -> ModalResult<String> {
-    alt((
-        // '...'
-        delimited('\'', take_until(0.., '\''), '\'').map(|s: &str| s.to_string()),
-        // "..."
-        delimited('"', take_until(0.., '"'), '"').map(|s: &str| s.to_string()),
-        // unquoted
+    let raw = alt((
+        delimited('\'', take_until(0.., '\''), '\'').map(|s: &str| format!("'{}'", s)),
+        delimited('"', take_until(0.., '"'), '"').map(|s: &str| format!("\"{}\"", s)),
         take_till(1.., char::is_whitespace).map(|s: &str| s.to_string()),
     ))
-    .parse_next(input)
+    .parse_next(input)?;
+
+    let unescaped = shell_words::split(&raw)
+        .ok()
+        .and_then(|mut v| v.pop())
+        .unwrap_or(raw);
+
+    Ok(unescaped)
 }
+
 pub fn parse_command(input: &mut &str) -> ModalResult<ShellCommand> {
     let _ = opt(space0).parse_next(input)?;
 
