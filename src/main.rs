@@ -5,13 +5,13 @@ use std::{
     ffi::OsStr,
     fs,
     io::BufRead,
-    os::unix::fs::PermissionsExt,
+    os::unix::{fs::PermissionsExt, process::CommandExt},
     path::{Path, PathBuf},
     process::Command,
     str::FromStr,
 };
 
-use winnow::{Parser, ascii::float};
+use winnow::Parser;
 
 use crate::parser::{Redirect, RedirectOperation, parse_command};
 
@@ -108,7 +108,11 @@ fn start_executable(
 
     match executable_path {
         Some(path) => {
-            let output = Command::new(&path).args(&mut args).output()?;
+            let mut command = Command::new(&path);
+            command.arg0(&cmd);
+            command.args(&mut args);
+
+            let output = command.output()?;
             let output_str = String::from_utf8_lossy(&output.stdout);
             let error_str = String::from_utf8_lossy(&output.stderr);
 
