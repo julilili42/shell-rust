@@ -1,29 +1,76 @@
 # Rusty Shell
 
-A small interactive Unix shell written in Rust as a learning project.
+Rusty Shell is a small interactive Unix shell built in Rust for the [CodeCrafters "Build Your Own Shell" challenge](https://codecrafters.io/challenges/shell). It supports built-in commands, `PATH` lookup, quoted arguments, and output redirection.
 
-## Features
+## Roadmap
 
-- Built-ins: `cd`, `echo`, `exit`, `pwd`, and `type`
-- Runs executables from `PATH` or an explicit path
-- Single- and double-quoted arguments
-- Standard output and error redirection with `>`, `>>`, `1>`, `1>>`, `2>`, and `2>>`
+- [x] Built-in commands
+  - [x] `cd`
+  - [x] `echo`
+  - [x] `exit`
+  - [x] `pwd`
+  - [x] `type`
+- [x] Run executables from `PATH` or an explicit path
+- [x] Parse single- and double-quoted arguments
+- [x] Redirect standard output and standard error
+  - [x] Overwrite with `>`, `1>`, and `2>`
+  - [x] Append with `>>`, `1>>`, and `2>>`
+- [ ] Pipes
+- [ ] Environment variable expansion
+- [ ] Job control
 
 ## Run
 
-Rust 1.96 or newer is required.
+Install [Rust](https://www.rust-lang.org/tools/install). Rust 1.96 or newer is required.
 
-```sh
+```bash
 cargo run
 ```
+
+Then enter commands at the prompt:
 
 ```text
 $ echo "hello world"
 hello world
 $ type echo
 echo is a shell builtin
-$ pwd
-/your/current/directory
+$ echo "saved output" > message.txt
+$ cat message.txt
+saved output
+$ exit
 ```
 
-This is not a fully POSIX-compliant shell. Pipes, environment expansion, and job control are not implemented.
+## Platforms
+
+- macOS and Linux — supported
+- Windows — not supported; executable detection uses Unix permission bits
+
+## Architecture
+
+```text
+stdin
+  │
+  ▼
+command parser
+  │
+  ▼
+ShellCommand
+  ├── built-in ──▶ execute in the shell
+  └── external ──▶ find in PATH ──▶ start process
+                                      │
+                                      ▼
+                              terminal or file
+```
+
+| Module          | Responsibility                                      |
+| --------------- | --------------------------------------------------- |
+| `src/parser.rs` | Parses commands, arguments, quotes, and redirections |
+| `src/main.rs`   | Runs the prompt, built-ins, and external executables |
+
+## References
+
+- [CodeCrafters: Build Your Own Shell](https://codecrafters.io/challenges/shell)
+- [`winnow` parser documentation](https://docs.rs/winnow/)
+- [`shell-words` documentation](https://docs.rs/shell-words/)
+
+Rusty Shell is a learning project and is not fully POSIX-compliant.
