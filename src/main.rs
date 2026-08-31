@@ -120,6 +120,12 @@ fn start_executable(
         Some(_) => {
             let output = Command::new(&cmd).args(&mut args).output()?;
             let output_str = String::from_utf8_lossy(&output.stdout);
+            let error_str = String::from_utf8_lossy(&output.stderr);
+
+            if !error_str.is_empty() {
+                eprint!("{}", error_str);
+                io::stderr().flush()?;
+            }
 
             if let Some(ref r) = redirect {
                 write_to_redirect(&r, &output_str)?;
