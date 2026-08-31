@@ -1,4 +1,4 @@
-# Rusty Shell
+# Shell Rust
 
 Rusty Shell is a small interactive Unix shell built in Rust for the [CodeCrafters "Build Your Own Shell" challenge](https://codecrafters.io/challenges/shell). It supports built-in commands, `PATH` lookup, quoted arguments, and output redirection.
 
