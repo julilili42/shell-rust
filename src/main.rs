@@ -116,9 +116,15 @@ fn start_executable(
     mut args: Vec<String>,
     redirect: Option<Redirect>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    match is_env_executable(&cmd, OsStr::new("PATH"))? {
-        Some(_) => {
-            let output = Command::new(&cmd).args(&mut args).output()?;
+    let executable_path = if Path::new(&cmd).is_file() {
+        Some(PathBuf::from(&cmd))
+    } else {
+        is_env_executable(&cmd, OsStr::new("PATH"))?
+    };
+
+    match executable_path {
+        Some(path) => {
+            let output = Command::new(&path).args(&mut args).output()?;
             let output_str = String::from_utf8_lossy(&output.stdout);
             let error_str = String::from_utf8_lossy(&output.stderr);
 

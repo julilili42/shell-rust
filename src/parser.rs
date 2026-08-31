@@ -1,7 +1,7 @@
 use winnow::{
     ModalResult, Parser,
     ascii::{space0, space1},
-    combinator::{alt, opt},
+    combinator::{alt, delimited, opt},
     error::{ContextError, ErrMode},
     token::{rest, take_till, take_until},
 };
@@ -19,20 +19,38 @@ pub struct Redirect {
     pub file: String,
 }
 
+fn parse_word(input: &mut &str) -> ModalResult<String> {
+    alt((
+        // '...'
+        delimited('\'', take_until(0.., '\''), '\'').map(|s: &str| s.to_string()),
+        // "..."
+        delimited('"', take_until(0.., '"'), '"').map(|s: &str| s.to_string()),
+        // unquoted
+        take_till(1.., char::is_whitespace).map(|s: &str| s.to_string()),
+    ))
+    .parse_next(input)
+}
 pub fn parse_command(input: &mut &str) -> ModalResult<ShellCommand> {
     let _ = opt(space0).parse_next(input)?;
 
-    let cmd_name = take_till(0.., char::is_whitespace).parse_next(input)?;
+    let cmd_name = parse_word.parse_next(input)?;
 
-    let command = match cmd_name {
+    let command = match cmd_name.as_str() {
         "exit" => ShellCommand::Exit,
         "echo" => {
             let (arg, redirect) = parse_argument.parse_next(input)?;
-            ShellCommand::Echo(arg, redirect)
+            let text = shell_words::split(&arg)
+                .map(|parts| parts.join(" "))
+                .unwrap_or(arg);
+            ShellCommand::Echo(text, redirect)
         }
         "type" => {
             let (arg, redirect) = parse_argument.parse_next(input)?;
-            ShellCommand::Type(arg, redirect)
+            let target = shell_words::split(&arg)
+                .ok()
+                .and_then(|parts| parts.into_iter().next())
+                .unwrap_or(arg);
+            ShellCommand::Type(target, redirect)
         }
         "pwd" => {
             let redirect = parse_redirect.parse_next(input)?;
@@ -40,7 +58,11 @@ pub fn parse_command(input: &mut &str) -> ModalResult<ShellCommand> {
         }
         "cd" => {
             let (arg, redirect) = parse_argument.parse_next(input)?;
-            ShellCommand::Cd(arg, redirect)
+            let path = shell_words::split(&arg)
+                .ok()
+                .and_then(|parts| parts.into_iter().next())
+                .unwrap_or(arg);
+            ShellCommand::Cd(path, redirect)
         }
         other => {
             let (arg, redirect) = parse_argument.parse_next(input)?;
@@ -55,15 +77,15 @@ pub fn parse_command(input: &mut &str) -> ModalResult<ShellCommand> {
 
 fn parse_redirect(input: &mut &str) -> ModalResult<Option<Redirect>> {
     let _ = opt(space0).parse_next(input)?;
-    let op_opt = opt(alt((">>", ">", "1>"))).parse_next(input)?;
+    let op_opt = opt(alt(("1>>", ">>", "1>", ">"))).parse_next(input)?;
 
     if let Some(op) = op_opt {
         let _ = opt(space0).parse_next(input)?;
-        let file = take_till(0.., char::is_whitespace).parse_next(input)?;
+        let file = parse_word.parse_next(input)?;
 
         let op_res = match op {
             ">" | "1>" => RedirectOperation::Write,
-            ">>" => RedirectOperation::Append,
+            ">>" | "1>>" => RedirectOperation::Append,
             _ => unreachable!(),
         };
 
@@ -83,7 +105,14 @@ fn parse_argument(input: &mut &str) -> ModalResult<(String, Option<Redirect>)> {
         return Ok((String::new(), None));
     }
 
-    let arg_str = alt((take_until(0.., "1>"), take_until(0.., ">"), rest)).parse_next(input)?;
+    let arg_str = alt((
+        take_until(0.., "1>>"),
+        take_until(0.., ">>"),
+        take_until(0.., "1>"),
+        take_until(0.., ">"),
+        rest,
+    ))
+    .parse_next(input)?;
 
     let arg = arg_str.trim_end().to_string();
     let redirect = parse_redirect.parse_next(input)?;
